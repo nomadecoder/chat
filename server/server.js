@@ -4,6 +4,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const net = require("net");
 const util = require("./util/util");
+const {decryptMessageRSA} = require("./util/util");
 
 // General Variables
 const port = 3349;
@@ -20,48 +21,44 @@ const dhParams = {
     prime: dh.getPrime().toString("hex"),
     generator: dh.getGenerator().toString("hex"),
 };
-const hashForSign = (data) => {
-    //convert data to buffer 64 before hash
-    console.log(data)
-    const t64 = Buffer.from(JSON.stringify(data)).toString("base64");
-    const hash = crypto.createHash("sha512");
-    const dhash = hash.update(t64).digest("hex");
-    console.log(dhash);
-    return dhash;
-    
 
-};
 //Server Creation
 const server = net.createServer((socket) => {
     socket.on("data", (data) => {
         // client requesting prime and generator for DH key exchange
         switch (JSON.parse(data).route) {
             case "getPG": {
-                console.log("Received getPG request");
+                console.log(`Received getPG request ${JSON.stringify(socket.remoteAddress)} and remote port ${socket.remotePort}`);
                 const v = JSON.parse(data);
-                console.log(v);
-                socket.write(JSON.stringify(dhParams));
-                break;
-            }
-            case "getPG_": {
-                console.log("Received getPG request");
-                const v = JSON.parse(data);
-                console.log(v);
-                socket.write(JSON.stringify(dhParams));
+                //console.log(v);
+                const response = {
+                    dhParams: dhParams,
+                    // all messages received by the client should be signed with the server's private key
+                    signature: util.signMessageRSA(util.hashForSign(dhParams), "./util/sign-key.pem"
+                    )
+                };
+                socket.write(JSON.stringify(response));
                 break;
             }
             // client authenticating to the server with their username and password
+            // these information will always be encrypted using the server encryption certificate
             case "validateUser": {
-                console.log(`'Received Authentication Request'${data}`);
-                const { user, password } = JSON.parse(data).message;
-                //return to the caller the validation status of his account request
-                socket.write(JSON.stringify(util.validateUser(user, password)));
+                try {
+                    console.log(`'Received Authentication Request'${data}`);
+                    let {user, password} = JSON.parse(data).message;
+                    user = decryptMessageRSA(user, './util/encryption-key.pem');
+                    password = decryptMessageRSA(password, './util/encryption-key.pem');
+                    console.log(user, password);//return to the caller the validation status of his account request
+                    socket.write(JSON.stringify(util.validateUser(user, password)));
+                } catch (error) {
+                    console.log(`error ${error}`);
+                }
                 break;
             }
             // client authenticating to the server with their username and password
             case "validateUser_": {
                 console.log(`'Received Authentication Request'${data}`);
-                const { user, password } = JSON.parse(data).message;
+                const {user, password} = JSON.parse(data).message;
                 //return to the caller the validation status of his account request
                 socket.write(JSON.stringify(util.validateUser(user, password)));
                 break;
@@ -75,7 +72,7 @@ const server = net.createServer((socket) => {
                     signedPGHash: signedPGHash,
                     dhParams: dhParams,
                 };
-                signedPGBuffer = Buffer.from(JSON.stringify(signedPG), "utf8").toString("hex");
+                let signedPGBuffer = Buffer.from(JSON.stringify(signedPG), "utf8").toString("hex");
                 console.log(pgHash, signedPGHash, signedPGBuffer);
                 socket.write(JSON.stringify(signedPGBuffer));
                 break;
@@ -93,4 +90,4 @@ server.listen(port, () => {
     console.log(`Server listening on port ${port}`);
 });
 
-// Stable version of the server without the server certificate verification steps involved for client version 0.0.8 and below
+// Stable version of the server with certificate encryption and signing

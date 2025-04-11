@@ -21,14 +21,13 @@ const hashMessage = (password, salt = "") => {
  */
 const saltGenerator = (length = 16) => {
     // Ensure the length is a positive integer
-    const salt = crypto.randomBytes(length).toString("hex");
-    return salt;
+    return crypto.randomBytes(length).toString("hex");
 };
 
 const validateUser = (user, password) => {
     console.log(user, password);
     //initialize the response
-    const validation = { validate: "false" };
+    const validation = {validate: "false"};
     //find the user in the databse
     const account = database.find((account) => account.user === user);
     //log information
@@ -54,24 +53,38 @@ const signMessageRSA = (message, privateKeyPath) => {
     // Update the signer with the message
     signer.update(message);
     // Sign the message using the private key and explicitly set PKCS1 v1.5 padding
-    const signature = signer.sign(
+    return signer.sign(
         {
             key: privateKey,
             padding: crypto.constants.RSA_PKCS1_PADDING, // PKCS#1 v1.5 padding
         },
         "base64"
     );
-    return signature;
 };
 
-// Encrypt the message using AES-GCM
+/**
+ * Encrypts a message using AES-GCM encryption.
+ *
+ * @param {string} message - The plaintext message to be encrypted.
+ *
+ * @returns {string} - The encrypted message, which includes the IV, ciphertext, and authentication tag, in hex-encoded format.
+ */
 const encryptMessageAES = (message) => {
-    const iv = crypto.randomBytes(12); // AES-GCM uses a 12-byte nonce/IV
+    // Generate a random 12-byte nonce/IV for AES-GCM
+    const iv = crypto.randomBytes(12);
     const cipher = crypto.createCipheriv("aes-256-gcm", aesKey, iv);
     let encrypted = cipher.update(message, "utf8", "hex");
     encrypted += cipher.final("hex");
-    const authTag = cipher.getAuthTag(); // Get the authentication tag
-    return iv.toString("hex") + encrypted + authTag.toString("hex"); // Concatenate IV, ciphertext, and authTag
+
+    // Get the authentication tag
+    const authTag = cipher.getAuthTag();
+
+    // Concatenate the IV, ciphertext, and authentication tag to form the final encrypted message
+    // The format will be:
+    // - First 24 hex characters: 12-byte IV
+    // - Followed by the ciphertext
+    // - Last 32 hex characters: Authentication tag (authTag)
+    return iv.toString("hex") + encrypted + authTag.toString("hex");
 };
 
 // Decrypt the message using AES-GCM
@@ -86,34 +99,77 @@ const decryptMessageAES = (encryptedMessage) => {
     return decrypted;
 };
 
-// Encrypt function
+/**
+ * Encrypts a message using the provided public key with padding (PKCS#1 v1.5).
+ * @param {string} message - The message to encrypt.
+ * @param {string} certPath - Path to the certificate file (public key).
+ * @returns {string} The encrypted message as a base64 string.
+ */
 function encryptMessageRSA(message, certPath) {
-    const publicKey = fs.readFileSync(certPath, "utf8"); // Read the certificate file (public key)
-    const bufferMessage = Buffer.from(message, "utf8"); // Convert message to buffer
-    const encryptedMessage = crypto.publicEncrypt(publicKey, bufferMessage);
+    // Read the certificate (public key) from the file
+    const publicKey = fs.readFileSync(certPath, "utf8");
+    // Convert message to buffer
+    const bufferMessage = Buffer.from(message, "utf8");
+    // Encrypt the message using the public key and specify PKCS1 v1.5 padding
+    const encryptedMessage = crypto.publicEncrypt(
+        {
+            key: publicKey,
+            padding: crypto.constants.RSA_PKCS1_PADDING, // PKCS#1 v1.5 padding
+        },
+        bufferMessage
+    );
     // Return encrypted message as a base64 string
     return encryptedMessage.toString("base64");
 }
 
-// Decrypt function
+/**
+ * Decrypts a message using the private key from a certificate file with padding (PKCS#1 v1.5).
+ * @param {string} encryptedMessage - The encrypted message to decrypt.
+ * @param {string} certPath - Path to the certificate file (private key).
+ * @returns {string} The decrypted message as a UTF-8 string.
+ */
 function decryptMessageRSA(encryptedMessage, certPath) {
-    const privateKey = fs.readFileSync(certPath, "utf8"); // Read the certificate file (private key)
-    const bufferEncryptedMessage = Buffer.from(encryptedMessage, "base64"); // Convert base64 string to buffer
-    const decryptedMessage = crypto.privateDecrypt(privateKey, bufferEncryptedMessage);
+    // Read the certificate (private key) from the file
+    const privateKey = fs.readFileSync(certPath, "utf8");
+    // Convert the encrypted message from a base64 string to a buffer
+    const bufferEncryptedMessage = Buffer.from(encryptedMessage, "base64");
+    // Decrypt the message using the private key and specify PKCS1 v1.5 padding
+    const decryptedMessage = crypto.privateDecrypt({
+        key: privateKey,
+        padding: crypto.constants.RSA_PKCS1_OAEP_PADDING, // PKCS#1 v1.5 padding
+    }, bufferEncryptedMessage);
     // Return decrypted message as a UTF-8 string
     return decryptedMessage.toString("utf8");
 }
 
+/**
+ * Generates a Diffie-Hellman instance from a prime number and a generator.
+ * @param {string} prime - The prime number in hexadecimal.
+ * @param {string} generator - The generator in hexadecimal.
+ * @returns {crypto.DiffieHellman} The Diffie-Hellman instance.
+ */
 const generateDH = (prime, generator) => {
     const dh = crypto.createDiffieHellman(Buffer.from(prime, "hex"), Buffer.from(generator, "hex"));
     dh.generateKeys();
     return dh;
 };
 
+/**
+ * Computes the shared secret using a Diffie-Hellman instance and a public key.
+ * @param {crypto.DiffieHellman} dh - The Diffie-Hellman instance.
+ * @param {string} publicKey - The public key in hexadecimal.
+ * @returns {Buffer} The shared secret in hexadecimal.
+ */
 const computeSharedSecret = (dh, publicKey) => {
     return dh.computeSecret(Buffer.from(publicKey, "hex"));
 };
 
+/**
+ * Converts an object to a base64 encoded string and hashes it using SHA-512.
+ * This prepares the object to be used for a signature with signMessageRSA()
+ * @param {object} data - The object to hash.
+ * @returns {string} The hexadecimal representation of the hash.
+ */
 const hashForSign = (data) => {
     //convert data to buffer 64 before hash
     console.log(data)
@@ -122,7 +178,7 @@ const hashForSign = (data) => {
     const dhash = hash.update(t64).digest("hex");
     console.log(dhash);
     return dhash;
-    
+
 
 };
 /*

@@ -1,4 +1,4 @@
-const { rejects } = require("assert");
+const {rejects} = require("assert");
 const util = require("./util/util");
 const crypto = require("crypto");
 const net = require("net");
@@ -9,36 +9,24 @@ let encrypt = false;
 let sendSocket = null; // Global variable to hold the socket for sending messages
 
 // Chat function - handles both server and client side logic
+// @param {string} peerIP - IP address of the peer
+// @param {number} peerPort - Port number of the peer
+// @param {number} listeningPort - Port number to listen for incoming peer connections
+// @param {crypto.DiffieHellman} dh - Diffie-Hellman instance
+// @param {string} peerName - Name of the peer
 const chat = async (peerIP, peerPort, listeningPort, dh, peerName) => {
-    // Added listeningPort parameter
-    if (encrypt) {
-        publicKey = dh.getPublicKey("hex");
-        //console.log(`My public key: ${publicKey}`);
-        privateKey = dh.getPrivateKey("hex");
-    }
     // Server to listen for incoming peer connections and handle data (receiving side)
     const server = net.createServer((socket) => {
-        receiveSocket = socket; // Assign the server socket to the receiveSocket
-
         socket.on("data", async (data) => {
             data = JSON.parse(data);
-            //console.log(data)
             switch (data.route) {
                 case "dhKeyExchange": {
                     peerName = data.message.myname;
-                    //console.log(peerName)
-                    // logs encryption information for debugging purposes only
-                    //if (encrypt) console.log(`Computing the shared key${encrypt}`);
                     // computing the share secret
                     sharedSecret = util.computeDHSharedSecret(dh, data.message.publicKey);
-                    // log the shared secret for debugging purposes only
-                    //if (encrypt) console.log(`Shared secret: ${sharedSecret}`);
                     // After the key exchange, derive the AES key
                     aesKey = crypto.createHash("sha256").update(sharedSecret).digest();
-                    // log the AES key for debugging purposes only
-                    //console.log(`AES key derived: ${aesKey.toString("hex")}`);
                     // Once the key exchange is complete, prompt the user to start chatting
-                    //console.log("Key exchange complete. You can start sending messages.");
                     promptUser(); // Call to prompt the user for messages
                     break;
                 }
@@ -47,17 +35,15 @@ const chat = async (peerIP, peerPort, listeningPort, dh, peerName) => {
                     const message = data.message;
                     if (encrypt) {
                         const decryptedMessage = util.decryptMessageAES(message, aesKey);
-                        //console.log(`Received from ${peerName} (encrypted): ${decryptedMessage}`);
                         util.printRightAligned(`${decryptedMessage} <${peerName}`);
                         promptUser();
                     } else {
                         util.printRightAligned(`${message} <${peerName}`);
-                        //console.log(`Received from ${peerName}: ${message}`);
                     }
                     break;
                 }
                 case "getPeerName": {
-                    console.log(`Received peer name: `);
+                    console.log(`Received peer name request: `);
                     break;
                 }
                 default:
@@ -80,42 +66,43 @@ const chat = async (peerIP, peerPort, listeningPort, dh, peerName) => {
     });
 
     // Client function to connect to peer and initiate key exchange (sending side)
+    /**
+     * Connects to the peer and initiates the key exchange (sending side)
+     * @returns {void}
+     */
     const connectToPeer = () => {
-        sendSocket = net.createConnection({ host: peerIP, port: peerPort }, () => {
+        // Create a new socket connection to the peer
+        sendSocket = net.createConnection({host: peerIP, port: peerPort}, () => {
             console.log("Successfully connected to peer (sending socket)");
+            // If encryption is enabled, initiate the key exchange
             if (encrypt) {
-                sendSocket.write(
-                    JSON.stringify({
-                        route: "dhKeyExchange",
-                        message: {
-                            publicKey: publicKey,
-                            myname: username,
-                        },
-                    })
-                );
-            }
-            else{
-                sendSocket.write(
-                    JSON.stringify({
-                        route: "getPeerName",
-                        message: {
-                            myname: username,
-                        },
-                    })
-                );
+                // Send the public key to the peer for key exchange
+                sendSocket.write(JSON.stringify({
+                    route: "dhKeyExchange", message: {
+                        publicKey: dh.getPublicKey("hex"), myname: username,
+                    },
+                }));
+            } else {
+                // If encryption is disabled, send a message to the peer to get their name
+                sendSocket.write(JSON.stringify({
+                    route: "getPeerName", message: {
+                        myname: username,
+                    },
+                }));
             }
         });
-
+        // Handle errors when connecting to the peer
         sendSocket.on("error", (err) => {
             console.log(`Error connecting to peer: ${err.message}`);
-            setTimeout(connectToPeer, 5000); // Retry connection after 5 seconds if error occurs
+            // Retry connection after 5 seconds if error occurs
+            setTimeout(connectToPeer, 5000);
         });
 
+        // Handle connection close event
         sendSocket.on("close", () => {
             console.log("Connection to peer closed (sending socket)");
         });
     };
-
     // Start the connection attempt for sending messages
     return connectToPeer();
 };
@@ -124,19 +111,13 @@ const chat = async (peerIP, peerPort, listeningPort, dh, peerName) => {
 const sendMessage = (message) => {
     if (encrypt) {
         const encryptedMessage = util.encryptMessageAES(message, aesKey);
-        sendSocket.write(
-            JSON.stringify({
-                route: "message",
-                message: encryptedMessage,
-            })
-        );
+        sendSocket.write(JSON.stringify({
+            route: "message", message: encryptedMessage,
+        }));
     } else {
-        sendSocket.write(
-            JSON.stringify({
-                route: "message",
-                message: message,
-            })
-        );
+        sendSocket.write(JSON.stringify({
+            route: "message", message: message,
+        }));
     }
 };
 
@@ -151,8 +132,7 @@ const promptUser = () => {
     const readline = require("readline");
     const rl = readline.createInterface({
         input: process.stdin, // Use process.stdin directly
-        output: process.stdout,
-        prompt: `${username}> `,
+        output: process.stdout, prompt: `${username}> `,
     });
     //console.clear();
     rl.prompt(); // Show the prompt
@@ -165,7 +145,7 @@ const promptUser = () => {
         }
 
         // Clear the input and directly return to the prompt
-        rl.write(null, { ctrl: true, name: "u" }); // Clear the current input
+        rl.write(null, {ctrl: true, name: "u"}); // Clear the current input
         console.clear();
         rl.prompt(); // Show the prompt again immediately
     });
@@ -177,39 +157,49 @@ const promptUser = () => {
 };
 
 async function main(peerIP, peerPort, serverIP, serverPort, listeningPort, username, password) {
-    console.log(`User ${username}, started the app`);
-    const auth = await util.authenticationRequest(serverIP, serverPort, username, password);
-    console.log(JSON.parse(auth.validate));
-    if (JSON.parse(auth.validate)) {
-        console.log(`Welcome ${username}, you are now authenticated`);
+    try {
+        console.log(`User ${username}, started the app`);
+        // User authentication, the authentication request are sent to the server encrypted using RSA
+        // the server's encryption certificate is used to encrypt the message
+        const auth = await util.authenticationRequest(serverIP, serverPort, util.encryptMessageRSA(username, 'encryption-cert.pem'), util.encryptMessageRSA(password, 'encryption-cert.pem'));
+        if (JSON.parse(auth.validate)) {
+            console.log(`Welcome ${username}, you are now authenticated`);
+            if (encrypt) {
+                // message coming from the server are signed, verify the validity of the message signature from the server using the cert
+                const serverResponse = await util.requestPG(serverIP, serverPort);
+                let dhParams;
+                if (util.verifyRSASignedMessage(util.hashForSign(serverResponse.dhParams), serverResponse.signature, "sign-cert.pem")) {
+                    console.log(`Server signature verified`);
+                    dhParams = serverResponse.dhParams;
+                } else {
+                    console.log(`Server signature not verified`);
+                }
+                const {dh} = util.initializeDH(dhParams.prime, dhParams.generator);
+                if (dhParams) {
+                    console.log(dhParams);
+                    // Start chat by passing peer socket into chat function
+                    await chat(peerIP, peerPort, listeningPort, dh); // Passed listeningPort
 
-        if (encrypt) {
-            const dhParams = await util.requestPG(serverIP, serverPort);
-            const { dh } = util.initializeDH(dhParams.prime, dhParams.generator);
-            if (dhParams) {
-                console.log(dhParams);
+                    // Now that chat has begun, we can call promptUser and pass the socket
+                    promptUser();
+                } else {
+                    console.log("Unable to retrieve prime and generator from the server");
+                }
+            } else {
+                console.log("Encryption is not enabled. You can still chat without encryption.");
+                //const peerName = await util.getPeerName(peerIP, peerPort);
+                //console.log(peerName)
                 // Start chat by passing peer socket into chat function
-                await chat(peerIP, peerPort, listeningPort, dh); // Passed listeningPort
+                await chat(peerIP, peerPort, listeningPort); // Passed listeningPort
 
                 // Now that chat has begun, we can call promptUser and pass the socket
                 promptUser();
-            } else {
-                console.log("Unable to retrieve prime and generator from the server");
             }
         } else {
-            console.log("Encryption is not enabled. You can still chat without encryption.");
-            //const dhParams = await util.requestPG(serverIP, serverPort);
-            //console.log(dhParams);
-            //const { dh } = util.initializeDH(dhParams.prime, dhParams.generator);
-
-            // Start chat by passing peer socket into chat function
-            await chat(peerIP, peerPort, listeningPort); // Passed listeningPort
-
-            // Now that chat has begun, we can call promptUser and pass the socket
-            promptUser();
+            console.log(`Username or Password Incorrect`);
         }
-    } else {
-        console.log(`Username or Password Incorrect`);
+    } catch (error) {
+        console.error(`An unhandled error occurred see below the message: ${error}`);
     }
 }
 
@@ -220,9 +210,7 @@ const [peerIP, peerPort, serverIP, serverPort, listeningPort, username, password
 encrypt = encryptFlag === "--encrypt";
 
 if (!peerIP || !peerPort || !serverIP || !serverPort || !listeningPort || !username || !password) {
-    console.log(
-        "Usage: node app.js <remotePeerIP> <remotePeerPort> <serverIP> <serverPort> <myListeningPort> <username> <password> [encrypt]"
-    );
+    console.log("Usage: node app.js <remotePeerIP> <remotePeerPort> <serverIP> <serverPort> <myListeningPort> <username> <password> [encrypt]");
     process.exit(1);
 }
 

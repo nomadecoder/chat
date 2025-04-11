@@ -1,21 +1,17 @@
 const net = require("net");
 const crypto = require("crypto");
-const { error } = require("console");
-const readline = require("readline");
-const { rejects } = require("assert");
 const fs = require("fs");
 /**
- * creates a request to the server
+ * Creates a request to the server general function to send any type of request to the server
  * @param {string} serverHost
  * @param {number} serverPort
  * @param {string} route
- * @param {string} message
- * @returns
+ * @param {{user, password}} message
+ * @returns {Promise<any>}
  */
 const createRequest = (serverHost, serverPort, route, message) => {
     return new Promise((resolve, rejects) => {
-        const client = net.createConnection({ host: serverHost, port: serverPort }, () => {
-            //console.log(`Connecting to server ${serverHost}:${serverPort}`);
+        const client = net.createConnection({host: serverHost, port: serverPort}, () => {
             client.write(
                 JSON.stringify({
                     route: route,
@@ -23,7 +19,7 @@ const createRequest = (serverHost, serverPort, route, message) => {
                 })
             );
         });
-
+        // Handle incoming data from the server or peer socket
         client.on("data", (data) => {
             try {
                 resolve(JSON.parse(data.toString()));
@@ -32,7 +28,7 @@ const createRequest = (serverHost, serverPort, route, message) => {
                 rejects(new Error(`Error parsing response from server: ${error}`));
             }
         });
-
+        // Handle errors
         client.on("error", (error) => {
             console.log(`Connection error: ${error}`);
             rejects(error);
@@ -42,23 +38,19 @@ const createRequest = (serverHost, serverPort, route, message) => {
 
 // Function to get PG (Prime and Generator)
 const requestPG = (serverHost, serverPort) => {
+    //console.log("requesting prime and generator from the server")
     return createRequest(serverHost, serverPort, "getPG", {});
 };
 
 // Function get peer name
 const getPeerName = (peerIP, peerPort) => {
+    console.log('sending request to peer')
     return createRequest(peerIP, peerPort, "getPeerName", {});
 }
 
-//encryptedRPG
-// Function to get PG (Prime and Generator)
-const requestPG_ = (serverHost, serverPort) => {
-    return createRequest(serverHost, serverPort, "RPGEncrypted", {});
-};
-
 // Function to authenticate user
 const authenticationRequest = (serverHost, serverPort, userName, password) => {
-    return createRequest(serverHost, serverPort, "validateUser", { user: userName, password: password });
+    return createRequest(serverHost, serverPort, "validateUser", {user: userName, password: password});
 };
 
 // Function to For DH Key Exchange
@@ -77,7 +69,6 @@ const initializeDH = (primeHex, generatorHex) => {
     const generatorBuffer = Buffer.from(generatorHex, "hex");
     const dh = crypto.createDiffieHellman(primeBuffer, generatorBuffer);
     dh.generateKeys();
-
     return {
         dh,
     };
@@ -88,8 +79,7 @@ const initializeDH = (primeHex, generatorHex) => {
  * @returns {string} - The shared secret in hexadecimal.
  * */
 const computeDHSharedSecret = (dh, remotePublicKey) => {
-    const sharedSecret = dh.computeSecret(remotePublicKey, "hex", "hex");
-    return sharedSecret;
+    return dh.computeSecret(remotePublicKey, "hex", "hex");
 };
 
 /**
@@ -136,22 +126,27 @@ const decryptMessageAES = (encryptedMessage, aesKey) => {
     return decrypted;
 };
 
-// print text right aligned
+/**
+ * Prints text right aligned in the console.
+ * If the text exceeds the console width, it is printed as is.
+ *
+ * @param {string} text - The text to print right aligned.
+ */
 function printRightAligned(text) {
-    const consoleWidth = process.stdout.columns; // Get the console width
-    const textLength = text.length;
-    const padding = consoleWidth - textLength - 15  // Calculate the padding needed to align to the right
+    const consoleWidth = process.stdout.columns; // Get the console width of the terminal
+    const textLength = text.length; // Calculate the length of the input text
+    const padding = consoleWidth - textLength - 15; // Calculate the padding needed to align text to the right
 
     if (padding > 0) {
-        const paddedText = " ".repeat(padding) + text; // Add spaces before the text
-        console.log(paddedText);
+        const paddedText = " ".repeat(padding) + text; // Create the padded text
+        console.log(paddedText); // Print the padded text
     } else {
-        // If the text is longer than the console width, it will be printed as is
-        console.log(text);
+        console.log(text); // Print the text as is if it exceeds the console width
     }
 }
+
 /**
-/**
+ /**
  * Verifies a signed message using the public key from a certificate file with padding (PKCS#1 v1.5).
  * @param {string} message - The original message.
  * @param {string} signature - The signature to verify.
@@ -166,7 +161,7 @@ const verifyRSASignedMessage = (message, signature, certificatePath) => {
     // Update the verifier with the message
     verifier.update(message);
     // Verify the signature using the public key (certificate) and explicitly set PKCS1 v1.5 padding
-    const isValid = verifier.verify(
+    return verifier.verify(
         {
             key: certificate,
             padding: crypto.constants.RSA_PKCS1_PADDING, // PKCS#1 v1.5 padding
@@ -174,29 +169,59 @@ const verifyRSASignedMessage = (message, signature, certificatePath) => {
         signature,
         "base64"
     );
-    return isValid;
 };
 
-// Encrypt function
+/**
+ * Encrypts a message using the provided public key with padding (PKCS#1 v1.5).
+ * @param {string} message - The message to encrypt.
+ * @param {string} certPath - Path to the certificate file (public key).
+ * @returns {string} The encrypted message as a base64 string.
+ */
 function encryptMessageRSA(message, certPath) {
-    const publicKey = fs.readFileSync(certPath, "utf8"); // Read the certificate file (public key)
-    const bufferMessage = Buffer.from(message, "utf8"); // Convert message to buffer
-    const encryptedMessage = crypto.publicEncrypt(publicKey, bufferMessage);
+    // Read the certificate (public key) from the file
+    const publicKey = fs.readFileSync(certPath, "utf8");
+    // Convert message to buffer
+    const bufferMessage = Buffer.from(message, "utf8");
+    // Encrypt the message using the public key and specify PKCS1 v1.5 padding
+    const encryptedMessage = crypto.publicEncrypt(
+        {
+            key: publicKey,
+            padding: crypto.constants.RSA_PKCS1_OAEP_PADDING, // PKCS#1 v1.5 padding
+        },
+        bufferMessage
+    );
     // Return encrypted message as a base64 string
     return encryptedMessage.toString("base64");
 }
 
-// Function to hash a password using SHA-512
+/**
+ * Function to hash a password using SHA-512.
+ * @param {string} password - The password to hash.
+ * @param {string} [salt=""] - The salt to use when hashing the password.
+ * @returns {object} - An object containing the salt and the hashed password.
+ */
 const hashMessage = (password, salt = "") => {
     const hash = crypto.createHash("sha512");
     hash.update(password + salt);
     const hashedMessage = hash.digest("hex");
     return {
-        salt: salt,
-        hashedMessage: hashedMessage,
-    }; // Return both salt and hashedPassword;
+        salt,
+        hashedMessage,
+    };
+}
+/**
+ * Converts an object to a base64 encoded string and hashes it using SHA-512.
+ * This prepares the object to be used for a signature with signMessageRSA()
+ * @param {object} data - The object to hash.
+ * @returns {string} The hexadecimal representation of the hash.
+ */
+const hashForSign = (data) => {
+    //convert data to buffer 64 before hash
+    //console.log(data)
+    const t64 = Buffer.from(JSON.stringify(data)).toString("base64");
+    const hash = crypto.createHash("sha512");
+    return hash.update(t64).digest("hex");
 };
-
 // Export functions
 module.exports = {
     requestPG,
@@ -208,8 +233,8 @@ module.exports = {
     encryptMessageAES,
     decryptMessageAES,
     encryptMessageRSA,
-    requestPG_,
     hashMessage,
     printRightAligned,
-    getPeerName
+    getPeerName,
+    hashForSign
 };
