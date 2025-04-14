@@ -1,4 +1,4 @@
-const {rejects} = require("assert");
+const { rejects } = require("assert");
 const util = require("./util/util");
 const crypto = require("crypto");
 const net = require("net");
@@ -72,7 +72,7 @@ const chat = async (peerIP, peerPort, listeningPort, dh, peerName) => {
      */
     const connectToPeer = () => {
         // Create a new socket connection to the peer
-        sendSocket = net.createConnection({host: peerIP, port: peerPort}, () => {
+        sendSocket = net.createConnection({ host: peerIP, port: peerPort }, () => {
             console.log("Successfully connected to peer (sending socket)");
             // If encryption is enabled, initiate the key exchange
             if (encrypt) {
@@ -145,7 +145,7 @@ const promptUser = () => {
         }
 
         // Clear the input and directly return to the prompt
-        rl.write(null, {ctrl: true, name: "u"}); // Clear the current input
+        rl.write(null, { ctrl: true, name: "u" }); // Clear the current input
         console.clear();
         rl.prompt(); // Show the prompt again immediately
     });
@@ -159,7 +159,7 @@ const promptUser = () => {
 async function main(peerIP, peerPort, serverIP, serverPort, listeningPort, username, password) {
     try {
         console.log(`User ${username}, started the app`);
-        // User authentication, the authentication request are sent to the server encrypted using RSA
+        // User authentication, the authentication request are sent to the server encrypted using RSA with the server's encryption certificate that has already been uploaded on the client
         // the server's encryption certificate is used to encrypt the message
         const auth = await util.authenticationRequest(serverIP, serverPort, util.encryptMessageRSA(username, 'encryption-cert.pem'), util.encryptMessageRSA(password, 'encryption-cert.pem'));
         if (JSON.parse(auth.validate)) {
@@ -174,7 +174,7 @@ async function main(peerIP, peerPort, serverIP, serverPort, listeningPort, usern
                 } else {
                     console.log(`Server signature not verified`);
                 }
-                const {dh} = util.initializeDH(dhParams.prime, dhParams.generator);
+                const { dh } = util.initializeDH(dhParams.prime, dhParams.generator);
                 if (dhParams) {
                     console.log(dhParams);
                     // Start chat by passing peer socket into chat function
